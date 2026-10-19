@@ -45,7 +45,8 @@ class TelemetryDB:
                 completada      INTEGER DEFAULT 0,
                 secciones_completadas INTEGER DEFAULT 0,
                 total_secciones INTEGER DEFAULT 4,
-                condition       TEXT
+                condition       TEXT,
+                tlx_completed   INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS events (
@@ -60,6 +61,18 @@ class TelemetryDB:
                 valor_texto     TEXT,
                 condition       TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS nasa_tlx (
+                session_id   TEXT,
+                mental       REAL,
+                fisica       REAL,
+                temporal     REAL,
+                rendimiento  REAL,
+                esfuerzo     REAL,
+                frustracion  REAL,
+                submitted_at TEXT,
+                PRIMARY KEY(session_id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_events_session
@@ -77,8 +90,15 @@ class TelemetryDB:
             conn.execute("ALTER TABLE sessions ADD COLUMN condition TEXT")
         if "session_id" not in session_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN session_id TEXT")
+        if "tlx_completed" not in session_cols:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN tlx_completed INTEGER DEFAULT 0"
+            )
         conn.execute(
             "UPDATE sessions SET session_id = id WHERE session_id IS NULL"
+        )
+        conn.execute(
+            "UPDATE sessions SET tlx_completed = 0 WHERE tlx_completed IS NULL"
         )
 
         event_cols = {
@@ -97,8 +117,8 @@ class TelemetryDB:
         conn = self._get_conn()
         conn.execute(
             """INSERT OR IGNORE INTO sessions
-               (id, session_id, modalidad, objeto, presupuesto, inicio, total_secciones, condition)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, session_id, modalidad, objeto, presupuesto, inicio, total_secciones, condition, tlx_completed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)""",
             (session_id, session_id, modalidad, objeto, presupuesto, inicio, total_secciones, condition),
         )
         conn.commit()
@@ -126,6 +146,40 @@ class TelemetryDB:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (session_id, seccion, fase, agente, tipo_evento, timestamp,
              valor_numerico, valor_texto, condition),
+        )
+        conn.commit()
+
+    def insert_nasa_tlx(
+        self,
+        session_id: str,
+        mental: float,
+        fisica: float,
+        temporal: float,
+        rendimiento: float,
+        esfuerzo: float,
+        frustracion: float,
+        submitted_at: str,
+    ) -> None:
+        """Inserta o actualiza respuestas NASA-TLX y marca tlx_completed=1 en sessions."""
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT OR REPLACE INTO nasa_tlx
+               (session_id, mental, fisica, temporal, rendimiento, esfuerzo, frustracion, submitted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                session_id,
+                float(mental),
+                float(fisica),
+                float(temporal),
+                float(rendimiento),
+                float(esfuerzo),
+                float(frustracion),
+                submitted_at,
+            ),
+        )
+        conn.execute(
+            "UPDATE sessions SET tlx_completed = 1 WHERE id = ? OR session_id = ?",
+            (session_id, session_id),
         )
         conn.commit()
 
@@ -192,12 +246,44 @@ class TelemetryDB:
         ).fetchone()
         d = dict(row)
         total = d["total"]
-        completadas = d["completadas"]
+        completadas = d["completadas"] or 0
         return {
             "total": total,
             "completadas": completadas,
             "abandonadas": total - completadas,
             "tasa_abandono": f"{((total - completadas) / total * 100) if total > 0 else 0:.1f}%",
+        }
+
+    def get_nasa_tlx_stats(self) -> dict:
+        """Retorna promedios globales de las 6 subescalas NASA-TLX y cruce A vs B."""
+        conn = self._get_conn()
+        global_row = conn.execute(
+            """SELECT COUNT(*) as count,
+                      AVG(mental) as mental,
+                      AVG(fisica) as fisica,
+                      AVG(temporal) as temporal,
+                      AVG(rendimiento) as rendimiento,
+                      AVG(esfuerzo) as esfuerzo,
+                      AVG(frustracion) as frustracion
+               FROM nasa_tlx"""
+        ).fetchone()
+        by_cond_rows = conn.execute(
+            """SELECT COALESCE(s.condition, 'Sin condición') as condition,
+                      COUNT(*) as count,
+                      AVG(n.mental) as mental,
+                      AVG(n.fisica) as fisica,
+                      AVG(n.temporal) as temporal,
+                      AVG(n.rendimiento) as rendimiento,
+                      AVG(n.esfuerzo) as esfuerzo,
+                      AVG(n.frustracion) as frustracion
+               FROM nasa_tlx n
+               LEFT JOIN sessions s ON n.session_id = s.id
+               GROUP BY COALESCE(s.condition, 'Sin condición')
+               ORDER BY condition"""
+        ).fetchall()
+        return {
+            "global": dict(global_row) if global_row else {},
+            "by_condition": [dict(r) for r in by_cond_rows],
         }
 
     def close(self) -> None:

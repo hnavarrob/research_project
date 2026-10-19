@@ -171,6 +171,51 @@ else:
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
+# Cuestionario NASA-TLX (6 subescalas + cruce A vs B)
+# ---------------------------------------------------------------------------
+st.subheader("🧠 Carga Cognitiva Autopercibida (NASA-TLX)")
+
+tlx_stats = db.get_nasa_tlx_stats()
+tlx_global = tlx_stats.get("global", {})
+tlx_count = tlx_global.get("count") or 0
+
+if tlx_count > 0:
+    st.caption(f"Respuestas registradas: {tlx_count}")
+    subscales = [
+        ("mental", "Demanda Mental"),
+        ("fisica", "Demanda Física"),
+        ("temporal", "Demanda Temporal"),
+        ("rendimiento", "Rendimiento"),
+        ("esfuerzo", "Esfuerzo"),
+        ("frustracion", "Frustración"),
+    ]
+    t_cols = st.columns(6)
+    for idx, (key, label) in enumerate(subscales):
+        val = tlx_global.get(key)
+        t_cols[idx].metric(label, f"{val:.1f}" if val is not None else "0.0")
+
+    by_cond = tlx_stats.get("by_condition", [])
+    if by_cond:
+        st.markdown("**Cruce por condición experimental (A vs B):**")
+        cond_table = []
+        for row in by_cond:
+            cond_table.append({
+                "Condición": row["condition"],
+                "N": row["count"],
+                "Mental": round(row["mental"] or 0.0, 1),
+                "Física": round(row["fisica"] or 0.0, 1),
+                "Temporal": round(row["temporal"] or 0.0, 1),
+                "Rendimiento": round(row["rendimiento"] or 0.0, 1),
+                "Esfuerzo": round(row["esfuerzo"] or 0.0, 1),
+                "Frustración": round(row["frustracion"] or 0.0, 1),
+            })
+        st.dataframe(cond_table, use_container_width=True, hide_index=True)
+else:
+    st.info("Sin respuestas del cuestionario NASA-TLX aún.")
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
 # Historial de sesiones
 # ---------------------------------------------------------------------------
 st.subheader("📋 Historial de Sesiones")
@@ -179,12 +224,14 @@ sessions = db.get_all_sessions()
 if sessions:
     for session in sessions:
         status = "✅" if session["completada"] else "❌"
+        cond_label = session.get("condition") or "-"
         with st.expander(
-            f"{status} Sesión {session['id']} — {session['modalidad']} "
+            f"{status} Sesión {session['id']} [Condición: {cond_label}] — {session['modalidad']} "
             f"({session['secciones_completadas']}/{session['total_secciones']} secciones)"
         ):
             st.markdown(f"**Objeto:** {session['objeto']}")
             st.markdown(f"**Presupuesto:** ${session['presupuesto']:,.0f} COP")
+            st.markdown(f"**Condición:** {cond_label} | **NASA-TLX completado:** {'Sí' if session.get('tlx_completed') else 'No'}")
             st.markdown(f"**Inicio:** {session['inicio']}")
             st.markdown(f"**Fin:** {session['fin'] or 'En curso / Abandonada'}")
 

@@ -194,3 +194,31 @@ class TelemetryTracker:
             timestamp=self._now(),
             condition=self._condition,
         )
+
+    def record_nasa_tlx(
+        self,
+        mental: float,
+        fisica: float,
+        temporal: float,
+        rendimiento: float,
+        esfuerzo: float,
+        frustracion: float,
+        session_id: str | None = None,
+    ) -> bool:
+        """Registra respuestas del cuestionario NASA-TLX y actualiza tlx_completed=1."""
+        sid = session_id or self._session_id
+        if not sid:
+            return False
+
+        self._db.insert_nasa_tlx(
+            session_id=sid,
+            mental=mental,
+            fisica=fisica,
+            temporal=temporal,
+            rendimiento=rendimiento,
+            esfuerzo=esfuerzo,
+            frustracion=frustracion,
+            submitted_at=self._now(),
+        )
+        logger.info("Telemetry: NASA-TLX registrado para sesión %s.", sid)
+        return True

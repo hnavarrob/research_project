@@ -607,11 +607,60 @@ else:
                 unsafe_allow_html=True,
             )
 
+        st.markdown("---")
+        st.markdown("### 🧠 Cuestionario de Carga Cognitiva (NASA-TLX)")
+        st.caption(
+            "Antes de descargar su documento, evalúe su experiencia de 0 a 100 en las siguientes dimensiones (opcional):"
+        )
+
+        tlx_mental = st.slider(
+            "Demanda mental — ¿Cuánta actividad mental y perceptiva te exigió esta tarea (pensar, decidir, calcular, recordar, buscar)?",
+            min_value=0, max_value=100, value=50, key="tlx_mental",
+        )
+        tlx_fisica = st.slider(
+            "Demanda física — ¿Cuánta actividad física fue necesaria (escribir, teclear, mover el mouse)?",
+            min_value=0, max_value=100, value=50, key="tlx_fisica",
+        )
+        tlx_temporal = st.slider(
+            "Demanda temporal — ¿Qué tanta prisa sentiste? ¿El ritmo fue lento o rápido y agobiante?",
+            min_value=0, max_value=100, value=50, key="tlx_temporal",
+        )
+        tlx_rendimiento = st.slider(
+            "Rendimiento — ¿Qué tan exitoso crees que fuiste? ¿Estás satisfecho con tu desempeño?",
+            min_value=0, max_value=100, value=50, key="tlx_rendimiento",
+        )
+        tlx_esfuerzo = st.slider(
+            "Esfuerzo — ¿Cuánto tuviste que esforzarte (mental y físicamente) para lograr tu nivel de rendimiento?",
+            min_value=0, max_value=100, value=50, key="tlx_esfuerzo",
+        )
+        tlx_frustracion = st.slider(
+            "Frustración — ¿Qué tan inseguro, desanimado, irritado, estresado o molesto te sentiste?",
+            min_value=0, max_value=100, value=50, key="tlx_frustracion",
+        )
+
+        if st.button("Enviar respuestas"):
+            sid = st.session_state.get("telemetry_session_id")
+            ok = tracker.record_nasa_tlx(
+                mental=tlx_mental,
+                fisica=tlx_fisica,
+                temporal=tlx_temporal,
+                rendimiento=tlx_rendimiento,
+                esfuerzo=tlx_esfuerzo,
+                frustracion=tlx_frustracion,
+                session_id=sid,
+            )
+            if ok:
+                st.session_state["tlx_submitted"] = True
+                st.success("✅ Respuestas NASA-TLX registradas correctamente.")
+            else:
+                st.warning("No se encontró una sesión activa para asociar las respuestas.")
+
+        if documento_completo:
             st.download_button(
-                label="📥 Descargar Documento Completo (.txt)",
+                label="📥 Descargar Documento Completo (.md)",
                 data=documento_completo,
-                file_name="estudios_previos_completo.txt",
-                mime="text/plain",
+                file_name="estudios_previos_completo.md",
+                mime="text/markdown",
             )
 
         st.markdown("---")
