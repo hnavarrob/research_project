@@ -19,6 +19,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 from telemetry.storage import TelemetryDB  # noqa: E402
 
@@ -248,6 +249,37 @@ if sessions:
                     )
 else:
     st.info("No hay sesiones registradas aún. Use la aplicación principal primero.")
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# Exportación CSV
+# ---------------------------------------------------------------------------
+st.subheader("📥 Exportar Datos a CSV")
+
+conn = db._get_conn()
+export_cols = st.columns(3)
+
+_csv_tables = [
+    ("sessions", "Descargar sessions.csv", "sessions.csv"),
+    ("events", "Descargar events.csv", "events.csv"),
+    ("nasa_tlx", "Descargar nasa_tlx.csv", "nasa_tlx.csv"),
+]
+
+for col, (table_name, btn_label, filename) in zip(export_cols, _csv_tables):
+    with col:
+        df_table = pd.read_sql(f"SELECT * FROM {table_name}", conn)
+        if df_table.empty:
+            st.warning(f"La tabla `{table_name}` está vacía.")
+        else:
+            csv_bytes = df_table.to_csv(index=False, sep=",", header=True).encode("utf-8")
+            st.download_button(
+                label=btn_label,
+                data=csv_bytes,
+                file_name=filename,
+                mime="text/csv",
+                key=f"dl_{table_name}",
+            )
 
 # ---------------------------------------------------------------------------
 # Footer
