@@ -18,6 +18,7 @@ import streamlit as st  # noqa: E402
 from langchain_chroma import Chroma  # noqa: E402
 from langchain_ollama import OllamaEmbeddings, OllamaLLM  # noqa: E402
 
+from agents.dialectic import _route_by_condition  # noqa: E402
 from agents.mental_state import EstadoMental  # noqa: E402
 from agents.nodes import (  # noqa: E402
     COMMITTEE_SEQUENCE,
@@ -122,6 +123,7 @@ SECCIONES_FRICCION = get_secciones_con_friccion()
 
 def _init_session():
     defaults = {
+        "condition": None,
         "step": "setup",
         "seccion_index": 0,
         "borrador_usuario": "",
@@ -177,6 +179,7 @@ def _build_graph_state():
             "objeto": st.session_state.get("objeto", ""),
             "presupuesto": st.session_state.get("presupuesto", 0.0),
         },
+        "condition": st.session_state.get("condition") or "B",
         "seccion_actual": seccion.id if seccion else "",
         "seccion_nombre": seccion.nombre if seccion else "",
         "borrador_usuario": st.session_state.borrador_usuario,
@@ -197,6 +200,30 @@ def _build_graph_state():
 st.title("Plataforma de Contratación Estatal")
 st.markdown("#### Estructuración y Validación Técnica Contractual")
 st.markdown("---")
+
+# Selector de condición experimental al inicio, antes de cualquier interacción
+_cond_options = ["A — sin fricción", "B — con fricción"]
+_current_cond = st.session_state.get("condition")
+_cond_index = (
+    0 if _current_cond == "A"
+    else 1 if _current_cond == "B"
+    else None
+)
+_cond_selected = st.radio(
+    "Condición experimental",
+    _cond_options,
+    index=_cond_index,
+    disabled=(st.session_state.step != "setup"),
+)
+if st.session_state.step == "setup":
+    if _cond_selected is not None:
+        st.session_state["condition"] = "A" if _cond_selected.startswith("A") else "B"
+    else:
+        st.session_state["condition"] = None
+
+if st.session_state.get("condition") not in ("A", "B"):
+    st.warning("Seleccione una condición experimental (A o B) para continuar.")
+    st.stop()
 
 # ==========================================
 # PANTALLA 1: SETUP
@@ -229,7 +256,9 @@ if st.session_state.step == "setup":
         )
 
         if st.form_submit_button("Iniciar Estructuración"):
-            if not objeto.strip():
+            if st.session_state.get("condition") not in ("A", "B"):
+                st.error("Debe seleccionar la condición experimental antes de avanzar.")
+            elif not objeto.strip():
                 st.error("El objeto del contrato es obligatorio.")
             else:
                 st.session_state.modalidad = modalidad
@@ -243,6 +272,7 @@ if st.session_state.step == "setup":
                     modalidad=modalidad, objeto=objeto,
                     presupuesto=presupuesto,
                     total_secciones=len(SECCIONES_FRICCION),
+                    condition=st.session_state["condition"],
                 )
                 st.session_state.telemetry_session_id = sid
 
@@ -262,6 +292,7 @@ else:
     # --- Sidebar: progreso y parámetros ---
     with st.expander("Ver Parámetros y Progreso", expanded=False):
         st.markdown(
+            f"**Condición:** {st.session_state.condition} | "
             f"**Modalidad:** {st.session_state.modalidad} | "
             f"**Presupuesto:** \\${st.session_state.presupuesto:,.0f} COP"
         )
@@ -312,35 +343,51 @@ else:
                 st.warning("Debe ingresar una idea base para continuar.")
             else:
                 st.session_state.borrador_usuario = borrador
-                st.session_state.step = "friccion"
 
                 # Telemetría: métricas del borrador
                 tracker.record_text_metrics(
                     seccion=seccion_actual.id, fase="borrador", texto=borrador)
 
-                with st.spinner("El comité está analizando su propuesta..."):
-                    try:
-                        state = _build_graph_state()
-                        state["borrador_usuario"] = borrador
+                state = _build_graph_state()
+                state["borrador_usuario"] = borrador
+                next_entry = _route_by_condition(state)
 
-                        # Retrieval
-                        state.update(retrieval_node(state))
+                if next_entry == "synthesis":
+                    # Condición A (Cero fricción): borrador → synthesis_node directo
+                    with st.spinner("Sintetizando documento formal..."):
+                        try:
+                            synth_result = synthesis_node(state)
+                            st.session_state.texto_final = synth_result["texto_final"]
+                            st.session_state.estado_mental.finalizar(seccion_actual.id)
+                            tracker.record_section_complete(seccion_actual.id)
+                            st.session_state.step = "sintesis"
+                        except Exception as e:
+                            logger.error("Error en síntesis directa (Condición A): %s", e)
+                            st.error(f"Error: {e}. Verifique que Ollama esté corriendo.")
+                            st.session_state.step = "ideacion"
+                else:
+                    # Condición B (Fricción estructurada): flujo actual completo
+                    st.session_state.step = "friccion"
+                    with st.spinner("El comité está analizando su propuesta..."):
+                        try:
+                            # Retrieval
+                            state.update(retrieval_node(state))
 
-                        # Committee (primer agente)
-                        state.update(committee_node(state))
+                            # Committee (primer agente)
+                            state.update(committee_node(state))
 
-                        st.session_state.pregunta_adversario = state["observaciones_auditor"][-1]
-                        st.session_state.observaciones = state["observaciones_auditor"]
-                        st.session_state.contexto_normativo = state.get("contexto_normativo", "")
-                        st.session_state.fuentes = state.get("fuentes", [])
+                            st.session_state.pregunta_adversario = state["observaciones_auditor"][-1]
+                            st.session_state.observaciones = state["observaciones_auditor"]
+                            st.session_state.contexto_normativo = state.get("contexto_normativo", "")
+                            st.session_state.fuentes = state.get("fuentes", [])
 
-                        # Telemetría: iniciar timer de reflexión
-                        tracker.start_friction_timer()
+                            # Telemetría: iniciar timer de reflexión
+                            tracker.start_friction_timer()
 
-                    except Exception as e:
-                        logger.error("Error en auditoría: %s", e)
-                        st.error(f"Error: {e}. Verifique que Ollama esté corriendo.")
-                        st.session_state.step = "ideacion"
+                        except Exception as e:
+                            logger.error("Error en auditoría: %s", e)
+                            st.error(f"Error: {e}. Verifique que Ollama esté corriendo.")
+                            st.session_state.step = "ideacion"
 
                 st.rerun()
 

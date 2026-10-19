@@ -28,11 +28,16 @@ class TelemetryTracker:
     def __init__(self, db: TelemetryDB | None = None):
         self._db = db or TelemetryDB()
         self._session_id: str | None = None
+        self._condition: str | None = None
         self._friction_start: datetime | None = None
 
     @property
     def session_id(self) -> str | None:
         return self._session_id
+
+    @property
+    def condition(self) -> str | None:
+        return self._condition
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -41,9 +46,11 @@ class TelemetryTracker:
     # Sesión
     # ------------------------------------------------------------------
     def start_session(self, modalidad: str, objeto: str, presupuesto: float,
-                      total_secciones: int = 4) -> str:
+                      total_secciones: int = 4,
+                      condition: str | None = None) -> str:
         """Inicia una sesión de estructuración."""
         self._session_id = str(uuid.uuid4())[:8]
+        self._condition = condition
         self._db.insert_session(
             session_id=self._session_id,
             modalidad=modalidad,
@@ -51,8 +58,10 @@ class TelemetryTracker:
             presupuesto=presupuesto,
             inicio=self._now(),
             total_secciones=total_secciones,
+            condition=condition,
         )
-        logger.info("Telemetry: sesión %s iniciada.", self._session_id)
+        logger.info("Telemetry: sesión %s iniciada (condition=%s).",
+                    self._session_id, condition)
         return self._session_id
 
     def end_session(self, completada: bool, secciones_completadas: int) -> None:
@@ -88,6 +97,7 @@ class TelemetryTracker:
             tipo_evento="dwell_time_seconds",
             timestamp=self._now(),
             valor_numerico=round(dwell_seconds, 2),
+            condition=self._condition,
         )
         self._friction_start = None
         logger.info("Telemetry: dwell_time=%.1fs (sección=%s, agente=%s)",
@@ -117,6 +127,7 @@ class TelemetryTracker:
             tipo_evento=tipo_palabras,
             timestamp=self._now(),
             valor_numerico=total_palabras,
+            condition=self._condition,
         )
         self._db.insert_event(
             session_id=self._session_id,
@@ -126,6 +137,7 @@ class TelemetryTracker:
             tipo_evento="profundidad_lexica",
             timestamp=self._now(),
             valor_numerico=round(profundidad, 4),
+            condition=self._condition,
         )
 
         return {
@@ -150,6 +162,7 @@ class TelemetryTracker:
             tipo_evento="evaluacion_resultado",
             timestamp=self._now(),
             valor_texto="aprobada" if aprobada else "rechazada",
+            condition=self._condition,
         )
 
     def record_section_complete(self, seccion: str) -> None:
@@ -164,6 +177,7 @@ class TelemetryTracker:
             agente=None,
             tipo_evento="seccion_completada",
             timestamp=self._now(),
+            condition=self._condition,
         )
 
     def record_tutor_activated(self, seccion: str) -> None:
@@ -178,4 +192,5 @@ class TelemetryTracker:
             agente="tutor",
             tipo_evento="tutor_activado",
             timestamp=self._now(),
+            condition=self._condition,
         )

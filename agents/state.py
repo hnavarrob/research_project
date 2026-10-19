@@ -26,6 +26,9 @@ class DialecticState(TypedDict, total=False):
     # Configuración
     config: ContractConfig
 
+    # Condición experimental: "A" = sin fricción, "B" = fricción estructurada
+    condition: str
+
     # Sección actual
     seccion_actual: str            # ID de la sección (ej: "justificacion")
     seccion_nombre: str            # Nombre legible (ej: "Justificación de la Necesidad")

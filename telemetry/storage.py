@@ -31,11 +31,12 @@ class TelemetryDB:
         return self._conn
 
     def _ensure_tables(self) -> None:
-        """Crea las tablas si no existen."""
+        """Crea las tablas si no existen y ejecuta migraciones no destructivas."""
         conn = self._get_conn()
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id              TEXT PRIMARY KEY,
+                session_id      TEXT,
                 modalidad       TEXT,
                 objeto          TEXT,
                 presupuesto     REAL,
@@ -43,7 +44,8 @@ class TelemetryDB:
                 fin             TEXT,
                 completada      INTEGER DEFAULT 0,
                 secciones_completadas INTEGER DEFAULT 0,
-                total_secciones INTEGER DEFAULT 4
+                total_secciones INTEGER DEFAULT 4,
+                condition       TEXT
             );
 
             CREATE TABLE IF NOT EXISTS events (
@@ -56,6 +58,7 @@ class TelemetryDB:
                 timestamp       TEXT NOT NULL,
                 valor_numerico  REAL,
                 valor_texto     TEXT,
+                condition       TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
 
@@ -64,17 +67,39 @@ class TelemetryDB:
             CREATE INDEX IF NOT EXISTS idx_events_tipo
                 ON events(tipo_evento);
         """)
+
+        # Migraciones no destructivas para bases de datos existentes
+        session_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "condition" not in session_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN condition TEXT")
+        if "session_id" not in session_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN session_id TEXT")
+        conn.execute(
+            "UPDATE sessions SET session_id = id WHERE session_id IS NULL"
+        )
+
+        event_cols = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(events)").fetchall()
+        }
+        if "condition" not in event_cols:
+            conn.execute("ALTER TABLE events ADD COLUMN condition TEXT")
+
         conn.commit()
         logger.info("Telemetry DB inicializada en '%s'.", self.db_path)
 
     def insert_session(self, session_id: str, modalidad: str, objeto: str,
-                       presupuesto: float, inicio: str, total_secciones: int = 4) -> None:
+                       presupuesto: float, inicio: str, total_secciones: int = 4,
+                       condition: str | None = None) -> None:
         conn = self._get_conn()
         conn.execute(
             """INSERT OR IGNORE INTO sessions
-               (id, modalidad, objeto, presupuesto, inicio, total_secciones)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (session_id, modalidad, objeto, presupuesto, inicio, total_secciones),
+               (id, session_id, modalidad, objeto, presupuesto, inicio, total_secciones, condition)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_id, session_id, modalidad, objeto, presupuesto, inicio, total_secciones, condition),
         )
         conn.commit()
 
@@ -91,15 +116,16 @@ class TelemetryDB:
     def insert_event(self, session_id: str, seccion: str, fase: str,
                      agente: str | None, tipo_evento: str, timestamp: str,
                      valor_numerico: float | None = None,
-                     valor_texto: str | None = None) -> None:
+                     valor_texto: str | None = None,
+                     condition: str | None = None) -> None:
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO events
                (session_id, seccion, fase, agente, tipo_evento, timestamp,
-                valor_numerico, valor_texto)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                valor_numerico, valor_texto, condition)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (session_id, seccion, fase, agente, tipo_evento, timestamp,
-             valor_numerico, valor_texto),
+             valor_numerico, valor_texto, condition),
         )
         conn.commit()
 

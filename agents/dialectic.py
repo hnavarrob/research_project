@@ -55,6 +55,17 @@ def _route_after_evaluation(state: DialecticState) -> str:
     return "committee"
 
 
+def _route_by_condition(state: DialecticState) -> str:
+    """Enrutamiento de entrada según la condición experimental.
+
+    - "A" (sin fricción)      → synthesis directo (sin comité, defensa ni tutor)
+    - "B" (fricción, default) → retrieval → committee (flujo actual)
+    """
+    if state.get("condition") == "A":
+        return "synthesis"
+    return "retrieval"
+
+
 def build_dialectic_graph() -> StateGraph:
     """Construye y compila el grafo dialéctico con comité evaluador."""
     graph = StateGraph(DialecticState)
@@ -66,8 +77,14 @@ def build_dialectic_graph() -> StateGraph:
     graph.add_node("evaluate", evaluate_node)
     graph.add_node("synthesis", synthesis_node)
 
-    # Flujo
-    graph.set_entry_point("retrieval")
+    # Flujo: entrada condicional por condición experimental (A/B)
+    graph.set_conditional_entry_point(
+        _route_by_condition,
+        {
+            "synthesis": "synthesis",
+            "retrieval": "retrieval",
+        },
+    )
     graph.add_edge("retrieval", "committee")
 
     # Después de committee y tutor, el control regresa al frontend
