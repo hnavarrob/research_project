@@ -2,7 +2,7 @@
 
 **Proyecto de Investigación — Especialización en Inteligencia Artificial**  
 **Tema:** Sistema Multiagente con Fricción Epistémica Estructurada (*Scaffolded AI Friction*) para Mitigar la Descarga Cognitiva en la Estructuración de Estudios Previos de Contratación Estatal en Colombia.  
-**Estado del software:** 100 % Funcional (*Feature-Complete*) — Listo para recolección de datos piloto A/B.
+
 
 ---
 
